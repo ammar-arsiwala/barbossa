@@ -6,11 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"runtime"
-	"strings"
 	"syscall"
-
-	"golang.org/x/sys/unix"
 )
 
 var config Config
@@ -49,7 +45,6 @@ func child() {
 	// NOTE: the binary must be a static compiled binary
 	// Go binaries should be compiled with
 	// -tags netgo -ldflags '-extldflags "-static"'
-	// XXX: Extrypoint should be provided by user
 	cmd := exec.CommandContext(context.TODO(), config.TargetCli[0], config.TargetCli[1:]...)
 	cmd.Stdout = os.Stdout
 	cmd.Stdin = os.Stdin
@@ -81,39 +76,6 @@ func parent() {
 		},
 	}
 	must(cmd.Start())
-
-	childPid := cmd.Process.Pid
-
-	setVETH := func(childPID int) {
-		// Note: This thread will be going to the net namespace of the childfd
-		// this is done so to configure the virtual ethernet
-		defer func() { select {} }()
-		runtime.LockOSThread()
-		// defer runtime.UnlockOSThread()
-
-		childFD, err := unix.PidfdOpen(childPID, 0)
-		if err != nil {
-			log.Fatal(err)
-		}
-		unix.Setns(childFD, syscall.CLONE_NEWNET)
-
-		return
-		cli := []string{
-			"ip link add dev vm1 type veth peer name vm2",
-			"ip link set dev vm1 up",
-			"ip tuntap add tapm mode tap",
-			"ip link set dev tapm up",
-			"ip link add brm type bridge",
-		}
-
-		for _, c := range cli {
-			cliArr := strings.Split(c, " ")
-			cmd := exec.CommandContext(context.TODO(), cliArr[0], cliArr[1:]...)
-			cmd.Run()
-		}
-	}
-
-	go setVETH(childPid)
 	must(cmd.Wait())
 }
 

@@ -104,6 +104,22 @@ func Ps() error {
 	return nil
 }
 
+func OutputMounts() error {
+	log.Println("MOUNTS: List all mounts")
+	file, err := os.Open("/proc/mounts")
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	log.Println(string(data))
+	return nil
+}
+
 func main() {
 	log.SetFlags(log.Lshortfile)
 	tests := []Tests{
@@ -112,6 +128,7 @@ func main() {
 		DnsResolverCustom,
 		DnsResolver,
 		Ps,
+		OutputMounts,
 	}
 	for _, test := range tests {
 		if err := test(); err != nil {

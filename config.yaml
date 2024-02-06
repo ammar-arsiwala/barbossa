@@ -1,0 +1,15 @@
+services:
+- name: service-1
+  hostname: www.service1.com
+  root: rootfs
+  username: service1
+  clockoffset: 0
+  exec:
+  - "!! ./main"
+  mountpoints:
+  - src: /tmp
+    dst: /tmp
+    mode: rw
+  - src: /var/www/service1
+    dst: /var/www/service1
+    mode: rw

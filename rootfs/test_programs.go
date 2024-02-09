@@ -7,20 +7,20 @@ import (
 	"log"
 	"net"
 	"os"
+	"reflect"
+	"runtime"
 	"time"
 )
 
 type Tests func() error
 
 func Output() error {
-	log.Println("OUTPUT: Running as child process")
 	pid := os.Getpid()
 	log.Printf("Running as child process with pid: %d\n", pid)
 	return nil
 }
 
 func SocketConnect() error {
-	log.Println("SOCKET CONNECT: Connecting to google.com")
 	socket, err := net.Dial("tcp", "142.250.182.68:80")
 	if err != nil {
 		return err
@@ -38,7 +38,6 @@ func SocketConnect() error {
 }
 
 func DnsResolver() error {
-	log.Println("DNS LOOKUP: IP address of google.com")
 	_, err := net.LookupIP("google.com")
 	if err != nil {
 		return err
@@ -47,7 +46,6 @@ func DnsResolver() error {
 }
 
 func DnsResolverCustom() error {
-	log.Println("DNS LOOKUP: IP address of google.com using custom resolver")
 	resolver := net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -70,7 +68,6 @@ func DnsResolverCustom() error {
 }
 
 func Ps() error {
-	log.Println("PS: List all processes")
 	dirs, err := os.ReadDir("/proc")
 	if err != nil {
 		return err
@@ -104,16 +101,40 @@ func Ps() error {
 	return nil
 }
 
+func PrintInterfaces() error {
+	ifs, err := net.Interfaces()
+	if err != nil {
+		return err
+	}
+
+	for _, interface_ := range ifs {
+		log.Println(interface_.Name)
+	}
+
+	return nil
+}
+
 func main() {
 	log.SetFlags(log.Lshortfile)
+	programName := os.Getenv("BB_NAME")
+	log.SetPrefix(programName + ": ")
+
 	tests := []Tests{
 		Output,
 		SocketConnect,
 		DnsResolverCustom,
 		DnsResolver,
 		Ps,
+		PrintInterfaces,
 	}
+
+	GetFunctionName := func(i interface{}) string {
+		return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
+	}
+
 	for _, test := range tests {
+		name := GetFunctionName(PrintInterfaces)
+		log.Println("Running ", name)
 		if err := test(); err != nil {
 			log.Println("ERROR:", err)
 		}

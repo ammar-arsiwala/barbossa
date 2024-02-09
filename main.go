@@ -103,7 +103,7 @@ func child(id int) {
 	execAll(context.Background(), config.ExecPost)
 }
 
-func spawn_child(config childConfig) (*exec.Cmd, error) {
+func spawnChild(config childConfig) (*exec.Cmd, error) {
 	location := "/proc/self/exe"
 	args := os.Args[1:]
 
@@ -144,13 +144,13 @@ func parent() {
 		log.Fatal(err)
 	}
 	services := map[string]*exec.Cmd{}
-	failed_boot_up_process := false
+	failedBootUpProcess := false
 
 	defer func() {
-		if failed_boot_up_process {
+		if failedBootUpProcess {
 			for _, cmd := range services {
 				if cmd.Process != nil {
-					// TODO: should we kill all the process (after some time) instead of giving them a sigint
+					// XXX: should we kill all the process (after some time) instead of giving them a sigint
 					// 	Handle situation in which process deadlocks
 					// 	What if the process has graceful exit builtin
 					cmd.Process.Signal(syscall.SIGINT)
@@ -164,14 +164,14 @@ func parent() {
 	}()
 
 	for c, service := range parent_config.Basic.Services {
-		cmd, err := spawn_child(childConfig{
+		cmd, err := spawnChild(childConfig{
 			ServiceID:   c,
 			ServiceName: service.Name,
 		})
 
 		if err != nil {
 			log.Println("Error spawning child process for service:", service.Name, "with error:", err)
-			failed_boot_up_process = true
+			failedBootUpProcess = true
 			break
 		}
 		services[service.Name] = cmd
@@ -180,7 +180,7 @@ func parent() {
 	for range services {
 		err := sem.Post()
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
 		}
 	}
 }

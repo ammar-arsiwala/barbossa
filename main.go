@@ -7,8 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"syscall"
+
+	"github.com/aka-mj/go-semaphore"
 )
 
 var parent_config Config
@@ -22,16 +23,10 @@ func main() {
 
 	if parent_config.IsChild {
 		log.Println("Starting Barbossa as child")
-
-		var wg sync.WaitGroup
-		defer wg.Wait()
-		for id := range parent_config.Basic.Services {
-			wg.Add(1)
-			go func(id int) {
-				defer wg.Done()
-				child(id)
-			}(id)
+		if parent_config.ServiceID >= len(parent_config.Basic.Services) {
+			log.Fatal("ServiceID is out of range")
 		}
+		child(parent_config.ServiceID)
 	} else {
 		parent()
 	}
@@ -39,14 +34,13 @@ func main() {
 
 func child(id int) {
 	config := parent_config.Basic.Services[id]
-	pid := os.Getpid()
-	cwd, err := os.Getwd()
-	must(err)
 
-	log.Printf("Running as child process with pid: %d @ %s", pid, cwd)
-	log.Println("Rootfs set to ", config.Root)
+	err := WaitForParent()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	must(chroot(config.Root))
+	must(syscall.Chroot(config.Root))
 	must(os.Chdir("/"))
 
 	if _, err := os.Stat("/proc"); os.IsNotExist(err) {
@@ -62,14 +56,20 @@ func child(id int) {
 		for _, command := range cmds {
 			cmd_arr_all := strings.Split(command, " ")
 			cmd_arr := cmd_arr_all[:]
-			if cmd_arr_all[0] == "!!" { // !! means run the program and exit if the return code is not 0
+			if cmd_arr_all[0] == "!!" {
+				// !! means run the program and exit if the return code is not 0
 				cmd_arr = cmd_arr[1:]
 			}
 
 			cmd := exec.CommandContext(context, cmd_arr[0], cmd_arr[1:]...)
+			// TODO: Replace stdout to custom logger
 			cmd.Stdout = os.Stdout
-			cmd.Stdin = os.Stdin
 			cmd.Stderr = os.Stderr
+			cmd.Stdin = os.Stdin
+
+			// XXX: should we set the environment variables here?
+			// Currently set this for testing purposes
+			cmd.Args = append(cmd.Args, os.Environ()...)
 
 			err := cmd.Start()
 			if err != nil {
@@ -103,16 +103,24 @@ func child(id int) {
 	execAll(context.Background(), config.ExecPost)
 }
 
-func parent() {
+func spawn_child(config childConfig) (*exec.Cmd, error) {
 	location := "/proc/self/exe"
 	args := os.Args[1:]
 
 	cmd := exec.CommandContext(context.TODO(), location, args...)
-	cmd.Env = append(cmd.Env, childEnv+"=True")
+	cmd.Env = append(cmd.Env,
+		childEnv+"=True",
+		fmt.Sprintf("%s=%d", serviceIDArg, config.ServiceID),
+		fmt.Sprintf("%s=%s", serviceNameArg, config.ServiceName),
+	)
 
+	// TODO: use custom logger to color the output
 	cmd.Stdout = os.Stdout
-	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
+
+	// Why should a service have stdin?
+	// TODO: use seperate TTY for interactive services
+	cmd.Stdin = os.Stdin
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWPID | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWTIME | syscall.CLONE_NEWNET,
@@ -124,12 +132,57 @@ func parent() {
 			},
 		},
 	}
-	must(cmd.Start())
-	must(cmd.Wait())
+
+	err := cmd.Start()
+	return cmd, err
 }
 
-func chroot(newroot string) error {
-	return syscall.Chroot(newroot)
+func parent() {
+	sem := semaphore.Semaphore{}
+	err := sem.Open(semaphore_name, 0666, 0)
+	if err != nil {
+		log.Fatal(err)
+	}
+	services := map[string]*exec.Cmd{}
+	failed_boot_up_process := false
+
+	defer func() {
+		if failed_boot_up_process {
+			for _, cmd := range services {
+				if cmd.Process != nil {
+					// TODO: should we kill all the process (after some time) instead of giving them a sigint
+					// 	Handle situation in which process deadlocks
+					// 	What if the process has graceful exit builtin
+					cmd.Process.Signal(syscall.SIGINT)
+				}
+			}
+		} else {
+			for _, cmd := range services {
+				cmd.Wait()
+			}
+		}
+	}()
+
+	for c, service := range parent_config.Basic.Services {
+		cmd, err := spawn_child(childConfig{
+			ServiceID:   c,
+			ServiceName: service.Name,
+		})
+
+		if err != nil {
+			log.Println("Error spawning child process for service:", service.Name, "with error:", err)
+			failed_boot_up_process = true
+			break
+		}
+		services[service.Name] = cmd
+	}
+
+	for range services {
+		err := sem.Post()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
 }
 
 func must(err error) {
@@ -138,17 +191,21 @@ func must(err error) {
 	}
 }
 
-func dirTree(start string, level int) {
-	dirs, err := os.ReadDir(start)
+type childConfig struct {
+	ServiceID   int
+	ServiceName string
+}
+
+func WaitForParent() error {
+	sem := semaphore.Semaphore{}
+	err := sem.Open(semaphore_name, 0666, 0)
 	if err != nil {
-		return
+		return err
+	}
+	err = sem.Wait()
+	if err != nil {
+		return err
 	}
 
-	for _, dir := range dirs {
-		for i := 0; i < level; i++ {
-			fmt.Print("  ")
-		}
-		fmt.Println(dir.Name())
-		dirTree(dir.Name(), level+1)
-	}
+	return nil
 }

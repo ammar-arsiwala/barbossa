@@ -3,18 +3,24 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"os"
+	"strconv"
 
 	yaml "gopkg.in/yaml.v2"
 )
 
-var childEnv string = "BARB_CHILD"
+const semaphore_name = "BARB_SEMAPHORE"
+const childEnv = "BARB_CHILD"
+const serviceIDArg = "BARB_SERVICE_ID"
+const serviceNameArg = "BARB_SERVICE_NAME"
 
 type Config struct {
 	IsChild     bool
 	ConfigFile  string
 	LogCommands bool
+	ServiceID   int
 
 	Basic ConfigBasic
 }
@@ -40,6 +46,17 @@ type ConfigBasic struct {
 
 		ClockOffset int64
 	}
+
+	Network []struct {
+		From struct {
+			Name string
+			Addr string
+		}
+		To struct {
+			Name string
+			Addr string
+		}
+	}
 }
 
 func (config *Config) Parse() error {
@@ -53,6 +70,19 @@ func (config *Config) Parse() error {
 	} else {
 		config.IsChild = true
 	}
+	config.LogCommands = *logCmd
+
+	service_id := os.Getenv(serviceIDArg)
+	if service_id == "" && config.IsChild {
+		return ErrServiceIDNotFound
+	} else if service_id != "" {
+		var err error
+		config.ServiceID, err = strconv.Atoi(service_id)
+		if err != nil {
+			return fmt.Errorf("error paring service id: %s", err.Error())
+		}
+	}
+
 	config.LogCommands = *logCmd
 
 	if *basicConfigPath != "-" {
@@ -86,6 +116,7 @@ func (config *Config) parseYAML(reader io.Reader) error {
 var (
 	ErrConfigFileNotFound    = errors.New("Config file not found")
 	ErrConfigFileNotSuppiled = errors.New("Config file not supplied")
+	ErrServiceIDNotFound     = errors.New("Service ID not found")
 )
 
 func fileExists(filename string) bool {

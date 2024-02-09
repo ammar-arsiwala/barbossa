@@ -5,7 +5,7 @@ services:
   username: service1
   clockoffset: 0
   exec:
-  - "!! ./main"
+  - "!! ./main -server 172.1.0.1 -connect 172.2.0.1"
   mountpoints:
   - src: /tmp
     dst: /tmp
@@ -13,3 +13,27 @@ services:
   - src: /var/www/service1
     dst: /var/www/service1
     mode: rw
+- name: service2
+  hostname: www.service2.com
+  root: rootfs
+  username: service2
+  clockoffset: 0
+  exec:
+  - "!! ./main -server 172.2.0.1 -connect 172.1.0.1"
+  mountpoints:
+  - src: /tmp
+    dst: /tmp
+    mode: rw
+  - src: /var/www/service2
+    dst: /var/www/service2
+    mode: rw
+
+
+---
+networks:
+- from: 
+  - name: service-1
+    addr: 192.1.0.1/16
+  to: 
+  - name: service-2
+    addr: 192.1.0.1/16

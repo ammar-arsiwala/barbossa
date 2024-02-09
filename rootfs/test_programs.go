@@ -132,7 +132,8 @@ func OutputMounts() error {
 
 func main() {
 	log.SetFlags(log.Lshortfile)
-	programName := os.Getenv("BB_NAME")
+	programName := os.Getenv("BARB_SERVICE_NAME")
+	log.Print("Program Name:", programName)
 	log.SetPrefix(programName + ": ")
 
 	tests := []Tests{

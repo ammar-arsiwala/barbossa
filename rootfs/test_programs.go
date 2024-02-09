@@ -110,6 +110,22 @@ func PrintInterfaces() error {
 	for _, interface_ := range ifs {
 		log.Println(interface_.Name)
 	}
+	return nil
+}
+
+func OutputMounts() error {
+	log.Println("MOUNTS: List all mounts")
+	file, err := os.Open("/proc/mounts")
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	log.Println(string(data))
 
 	return nil
 }
@@ -126,6 +142,7 @@ func main() {
 		DnsResolver,
 		Ps,
 		PrintInterfaces,
+		OutputMounts,
 	}
 
 	GetFunctionName := func(i interface{}) string {

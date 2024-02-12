@@ -9,7 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/aka-mj/go-semaphore"
+	"github.com/keshavchand/barbossa/veth"
 )
 
 var parent_config Config
@@ -33,6 +33,7 @@ func main() {
 }
 
 func child(id int) {
+	log.Println("Starting child process for service:", parent_config.Basic.Services[id].Name)
 	config := parent_config.Basic.Services[id]
 
 	err := WaitForParent()
@@ -138,32 +139,15 @@ func spawnChild(config childConfig) (*exec.Cmd, error) {
 }
 
 func parent() {
-	sem := semaphore.Semaphore{}
-	err := sem.Open(semaphore_name, 0666, 0)
+	sem, err := OpenSem()
 	if err != nil {
 		log.Fatal(err)
 	}
-	services := map[string]*exec.Cmd{}
-	failedBootUpProcess := false
 
-	defer func() {
-		if failedBootUpProcess {
-			for _, cmd := range services {
-				if cmd.Process != nil {
-					// XXX: should we kill all the process (after some time) instead of giving them a sigint
-					// 	Handle situation in which process deadlocks
-					// 	What if the process has graceful exit builtin
-					cmd.Process.Signal(syscall.SIGINT)
-				}
-			}
-		} else {
-			for _, cmd := range services {
-				cmd.Wait()
-			}
-		}
-	}()
+	services := map[string]*exec.Cmd{}
 
 	for c, service := range parent_config.Basic.Services {
+		log.Println("Spawning child process for service:", service.Name)
 		cmd, err := spawnChild(childConfig{
 			ServiceID:   c,
 			ServiceName: service.Name,
@@ -171,24 +155,81 @@ func parent() {
 
 		if err != nil {
 			log.Println("Error spawning child process for service:", service.Name, "with error:", err)
-			failedBootUpProcess = true
 			break
 		}
 		services[service.Name] = cmd
 	}
 
+	defer func() {
+		for _, cmd := range services {
+			if cmd.Process != nil {
+				cmd.Process.Signal(syscall.SIGINT)
+			}
+		}
+	}()
+
+	configuredNetwork, err := ConfigureNetwork(services)
+	if err != nil {
+		log.Println("Error configuring network:", err)
+		return
+	}
+
+	defer func() {
+		for _, net := range configuredNetwork {
+			err := net.Close()
+			if err != nil {
+				log.Println("Error closing network:", err)
+			}
+		}
+	}()
+
 	for range services {
-		err := sem.Post()
+		err := sem.Signal()
+		if err != nil {
+			log.Println(err)
+		}
+	}
+
+	for _, cmd := range services {
+		err := cmd.Wait()
 		if err != nil {
 			log.Println(err)
 		}
 	}
 }
 
-func must(err error) {
-	if err != nil {
-		panic(err)
+func ConfigureNetwork(services map[string]*exec.Cmd) (NetMap, error) {
+	networks := parent_config.Basic.Networks
+
+	netMap := NetMap{}
+
+	for _, network := range networks {
+		virtualNetwork, err := veth.New()
+		if err != nil {
+			return nil, err
+		}
+
+		fromCmd, ok := services[network.From.Name]
+		if !ok {
+			return nil, ErrServiceNotFound(network.From.Name)
+		}
+
+		toCmd, ok := services[network.To.Name]
+		if !ok {
+			return nil, ErrServiceNotFound(network.To.Name)
+		}
+
+		err = virtualNetwork.ConnectPids(fromCmd.Process.Pid, toCmd.Process.Pid, network.From.Addr, network.To.Addr)
+		if err != nil {
+			return nil, err
+		}
+
+		log.Print("Connected ", network.From.Name, " to ", network.To.Name, " with ", network.From.Addr, " and ", network.To.Addr)
+		netMap[NetKey{network.From.Name, network.To.Name}] = virtualNetwork
 	}
+
+	// TODO: Monitor changes
+	return netMap, nil
 }
 
 type childConfig struct {
@@ -196,16 +237,9 @@ type childConfig struct {
 	ServiceName string
 }
 
-func WaitForParent() error {
-	sem := semaphore.Semaphore{}
-	err := sem.Open(semaphore_name, 0666, 0)
-	if err != nil {
-		return err
-	}
-	err = sem.Wait()
-	if err != nil {
-		return err
-	}
-
-	return nil
+type NetKey struct {
+	From string
+	To   string
 }
+
+type NetMap map[NetKey]veth.VirtualNetwork

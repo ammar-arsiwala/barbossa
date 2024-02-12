@@ -2,6 +2,7 @@ package veth
 
 import (
 	"errors"
+	"log"
 	"net"
 	"runtime"
 	"syscall"
@@ -69,6 +70,25 @@ func (v *virtualNetworkInterfaceImpl) ConnectPids(pid1, pid2 int, ip1, ip2 strin
 	v.linkPeerPid = pid2
 	v.inUse = true
 
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	defer enterPidNetNamespace(1)
+
+	err := v.Vether.SetLinkNetNsPid(pid1)
+	if err != nil {
+		return err
+	}
+
+	err = v.Vether.SetPeerLinkNsPid(pid2)
+	if err != nil {
+		return err
+	}
+
+	err = enterPidNetNamespace(pid1)
+	if err != nil {
+		log.Println(err)
+	}
+
 	ip, ipnet, err := net.ParseCIDR(ip1)
 	if err != nil {
 		return err
@@ -79,17 +99,17 @@ func (v *virtualNetworkInterfaceImpl) ConnectPids(pid1, pid2 int, ip1, ip2 strin
 		return err
 	}
 
-	err = v.Vether.SetPeerLinkUp()
+	err = v.Vether.SetLinkUp()
 	if err != nil {
 		return err
+	}
+
+	err = enterPidNetNamespace(pid2)
+	if err != nil {
+		log.Println(err)
 	}
 
 	ip, ipnet, err = net.ParseCIDR(ip2)
-	if err != nil {
-		return err
-	}
-
-	err = v.Vether.SetLinkUp()
 	if err != nil {
 		return err
 	}
@@ -99,17 +119,21 @@ func (v *virtualNetworkInterfaceImpl) ConnectPids(pid1, pid2 int, ip1, ip2 strin
 		return err
 	}
 
-	err = v.Vether.SetLinkNetNsPid(pid1)
-	if err != nil {
-		return err
-	}
-
-	err = v.Vether.SetPeerLinkNsPid(pid2)
+	err = v.Vether.SetPeerLinkUp()
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func enterPidNetNamespace(pid int) error {
+	fd, err := unix.PidfdOpen(pid, 0)
+	if err != nil {
+		return err
+	}
+
+	return unix.Setns(fd, syscall.CLONE_NEWNET)
 }
 
 var ErrUnimplemented = errors.New("unimplemented")

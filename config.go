@@ -11,7 +11,6 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
-const semaphore_name = "BARB_SEMAPHORE"
 const childEnv = "BARB_CHILD"
 const serviceIDArg = "BARB_SERVICE_ID"
 const serviceNameArg = "BARB_SERVICE_NAME"
@@ -47,7 +46,7 @@ type ConfigBasic struct {
 		ClockOffset int64
 	}
 
-	Network []struct {
+	Networks []struct {
 		From struct {
 			Name string
 			Addr string

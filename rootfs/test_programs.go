@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -130,20 +131,78 @@ func OutputMounts() error {
 	return nil
 }
 
+var (
+	server_addr *string
+)
+
+func TestServerClientConnection() error {
+	if *server_addr == "" {
+		conn, err := net.Listen("tcp", ":8080")
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+
+		go func() {
+			time.Sleep(3 * time.Second)
+			conn.Close()
+		}()
+
+		newConn, err := conn.Accept()
+		if err != nil {
+			return err
+		}
+
+		log.Println("Accepted connection from ", newConn.RemoteAddr())
+		newConn.Write([]byte("Hello"))
+
+		var incommingMessage [1024]byte
+		newConn.Read(incommingMessage[:])
+		log.Println("Received message: ", string(incommingMessage[:]))
+	} else {
+		var conn net.Conn
+		var err error
+
+		for i := 0; i < 5; i++ {
+			conn, err = net.Dial("tcp", *server_addr)
+			if err != nil {
+				time.Sleep(1 * time.Second)
+				continue
+			} else {
+				break
+			}
+		}
+
+		if err != nil {
+			log.Fatal("Cant connect to server")
+		}
+		defer conn.Close()
+
+		conn.Write([]byte("Hello"))
+		var incommingMessage [1024]byte
+		conn.Read(incommingMessage[:])
+	}
+	return nil
+}
+
 func main() {
 	log.SetFlags(log.Lshortfile)
 	programName := os.Getenv("BARB_SERVICE_NAME")
 	log.Print("Program Name:", programName)
 	log.SetPrefix(programName + ": ")
 
+	server_addr = flag.String("servaddr", "", "Server address")
+	flag.Parse()
+
 	tests := []Tests{
-		Output,
-		SocketConnect,
-		DnsResolverCustom,
-		DnsResolver,
-		Ps,
-		PrintInterfaces,
-		OutputMounts,
+		// Output,
+		// SocketConnect,
+		// DnsResolverCustom,
+		// DnsResolver,
+		// Ps,
+		// PrintInterfaces,
+		// OutputMounts,
+		TestServerClientConnection,
 	}
 
 	GetFunctionName := func(i interface{}) string {
@@ -151,7 +210,7 @@ func main() {
 	}
 
 	for _, test := range tests {
-		name := GetFunctionName(PrintInterfaces)
+		name := GetFunctionName(test)
 		log.Println("Running ", name)
 		if err := test(); err != nil {
 			log.Println("ERROR:", err)

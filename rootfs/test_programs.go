@@ -110,6 +110,7 @@ func PrintInterfaces() error {
 
 	for _, interface_ := range ifs {
 		log.Println(interface_.Name)
+		log.Println(interface_.Addrs())
 	}
 	return nil
 }
@@ -144,7 +145,7 @@ func TestServerClientConnection() error {
 		defer conn.Close()
 
 		go func() {
-			time.Sleep(3 * time.Second)
+			time.Sleep(5 * time.Second)
 			conn.Close()
 		}()
 
@@ -200,7 +201,7 @@ func main() {
 		// DnsResolverCustom,
 		// DnsResolver,
 		// Ps,
-		// PrintInterfaces,
+		PrintInterfaces,
 		// OutputMounts,
 		TestServerClientConnection,
 	}

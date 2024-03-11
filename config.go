@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strconv"
 
@@ -24,38 +25,40 @@ type Config struct {
 	Basic ConfigBasic
 }
 
-type ConfigBasic struct {
+type Service struct {
+	Name     string   // The name of the service
+	Image    string   // The image to use
+	Hostname string   // The hostname to bind to (must be unique)
+	Root     string   // The root directory to chroot to
+	Username string   // The user to run the service as
+	Exec     []string // The target program to execute
+	Env      []string // The environment variables to set
+
+	CpuNs       int64 // The CPU quota in nanosecond
+	MemoryLimit int64 // The memory limit in bytes
+
+	MountPoints []struct {
+		Src  string
+		Dst  string
+		Mode string
+	} // Mount points from the rootfs
+
+	ClockOffset int64
+}
+
+type Network struct {
+	Name     string
+	Gateway  string
+	Subnet   string
 	Services []struct {
-		Name     string   // The name of the service
-		Hostname string   // The hostname to bind to (must be unique)
-		Root     string   // The root directory to chroot to
-		Username string   // The user to run the service as
-		ExecPre  []string // Before the target program is executed
-		Exec     []string // The target program to execute
-		ExecPost []string // After the target program is executed
-
-		CpuNs       int64 // The CPU quota in nanosecond
-		MemoryLimit int64 // The memory limit in bytes
-
-		MountPoints []struct {
-			Src  string
-			Dst  string
-			Mode string
-		} // Mount points from the rootfs
-
-		ClockOffset int64
+		Name string
+		Addr string
 	}
+}
 
-	Networks []struct {
-		From struct {
-			Name string
-			Addr string
-		}
-		To struct {
-			Name string
-			Addr string
-		}
-	}
+type ConfigBasic struct {
+	Services []Service
+	Networks []Network
 }
 
 func (config *Config) Parse() error {
@@ -84,20 +87,33 @@ func (config *Config) Parse() error {
 
 	config.LogCommands = *logCmd
 
-	if *basicConfigPath != "-" {
-		if !fileExists(*basicConfigPath) {
-			return ErrConfigFileNotFound
-		}
-
-		file, err := os.Open(*basicConfigPath)
-		if err != nil {
-			return err
-		}
-		defer file.Close()
-		config.parseYAML(file)
-	} else {
+	if *basicConfigPath == "-" {
 		return ErrConfigFileNotSuppiled
 	}
+
+	if !fileExists(*basicConfigPath) {
+		return ErrConfigFileNotFound
+	}
+
+	file, err := os.Open(*basicConfigPath)
+	if err != nil {
+		return err
+	}
+
+	defer file.Close()
+
+	err = config.parseYAML(file)
+	if err != nil {
+		return err
+	}
+
+	for _, service := range config.Basic.Services {
+		if service.Image == "" {
+			log.Println("Image not found for service: ", service.Name)
+			return ErrImageNotFound
+		}
+	}
+
 	return nil
 }
 
@@ -116,6 +132,7 @@ var (
 	ErrConfigFileNotFound    = errors.New("Config file not found")
 	ErrConfigFileNotSuppiled = errors.New("Config file not supplied")
 	ErrServiceIDNotFound     = errors.New("Service ID not found")
+	ErrImageNotFound         = errors.New("Image not found")
 )
 
 func fileExists(filename string) bool {

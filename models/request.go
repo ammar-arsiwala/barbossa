@@ -2,6 +2,7 @@ package models
 
 import "fmt"
 
+// swagger:parameters shutdown
 type ShutdownRequest struct {
 	Info []struct {
 		Name     string `json:"name"`
@@ -19,6 +20,7 @@ func (s *ShutdownRequest) Verify() error {
 	return nil
 }
 
+// swagger:parameters startup
 type StartupRequest struct {
 	Info []struct {
 		Name string `json:"name"`
@@ -35,6 +37,7 @@ func (s *StartupRequest) Verify() error {
 	return nil
 }
 
+// swagger:parameters partition
 type PartitionRequest struct {
 	Info []struct {
 		ContainerName string `json:"container_name"`
@@ -55,6 +58,7 @@ func (s *PartitionRequest) Verify() error {
 	return nil
 }
 
+// swagger:parameters connect
 type ConnectRequest struct {
 	Info []struct {
 		ContainerName string `json:"container_name"`
@@ -72,4 +76,10 @@ func (s *ConnectRequest) Verify() error {
 		}
 	}
 	return nil
+}
+
+// swagger:parameters status
+type StatusRequest struct {
+	// in:query
+	Name string `json:"name"`
 }
